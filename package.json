@@ -1,0 +1,19 @@
+{
+  "name": "demo-discord-hangman",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "axios": "^0.21.1"
+  },
+  "dependencies": {
+    "discord.js": "^13.2.0-dev.1629288463.d6e6244",
+    "dotenv": "^10.0.0"
+  }
+}
