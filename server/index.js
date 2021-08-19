@@ -1,8 +1,9 @@
 require('dotenv').config()
 const axios = require('axios')
+const path = require('path')
+const fs = require('fs')
 
 const { Client, Intents } = require('discord.js')
-
 const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES] })
 
 // TODO: Create DMChannel and return message HELLO_DM
@@ -29,9 +30,15 @@ const {
 
 const LIST_WORDS = require('./data/words') // list of our words
 let HANG_STATE = require('./data/hang')
-   
-let textChannels = []
 
+const dbLink = path.join(__dirname, 'data/data.json')
+let records = null
+async function getServerRecords() {
+  let dataString = fs.readFileSync(dbLink, 'utf-8')
+  return JSON.parse(dataString)
+}
+/*{[serverId]: {point: xx, playesr: [Author]}}*/
+let textChannels = []
 let gameChannel = null
 let gameState = GAME_STATE.INACTIVE
 let lives = NUM_LIVES
@@ -84,7 +91,7 @@ client.on('messageCreate', async message => {
   if (command.length >= 200) {
     ch.send({ embeds: [botMess("😨 That's a long command... Sorry I can't process it")] })
   }
-  
+
   // 3 - If channel in game mode -----------------------------------------------------
   if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {
     handleGame(message, ch, author, command, content)
@@ -152,7 +159,20 @@ client.on('messageCreate', async message => {
         gameState = GAME_STATE.READY
         gameChannel = ch
         addNewPlayer(author)
-        ch.send({ embeds: [gameWelcomeEmbed(gameChannel.name)] })
+        records = await getServerRecords()
+        let highest = null
+        let username = null
+        if (records[message.guild.id]) {
+          highest = records[message.guild.id].point
+          username = records[message.guild.id].players.map(p => p.username).join(", ")
+        }
+        ch.send({
+          embeds: [gameWelcomeEmbed(
+            gameChannel.name,
+            username,
+            highest,
+            message.guild.name)]
+        })
       } else {
         let room = gameChannel
           ? `channel \`${gameChannel.name}\``
@@ -245,7 +265,7 @@ function initGame(ch) {
   word = LIST_WORDS[rd]
 
   console.log("hehe:", word, rd)
-  
+
   lcWordArr = word.toLocaleLowerCase().split('')
   riddleArr = []
   for (let i = 0; i < word.length; i++) {
@@ -284,6 +304,48 @@ function showRanking(ch) {
   ch.send({ embeds: [gameNoti(rankingBoard, "🕴🏻 Mr.Hangman Ranking 🏆")] })
 }
 
+async function handleRecord(ch, guildId, info, addedPoints) {
+  if (!records) records = await getServerRecords()
+
+  let notiRecord = "Congrats, you've just set a new record!\n"
+  + `🥇 **${info.player.username}**: ${info.point} pts`
+
+  if (!records[guildId]) {
+    records[guildId] = {
+      point: info.point,
+      players: [info.player]
+    }
+
+  } else if (records[guildId].point > info.point) {
+    notiRecord = ""
+    return
+
+  } else if (records[guildId].point == info.point) {
+    if (!records[guildId].players.map(p=>p.id).includes(info.player.id)) {
+      records[guildId].players.push(info.player)
+    }
+
+  } else if (records[guildId].point < info.point) {
+    if (records[guildId].point > info.point - addedPoints) {
+      let oldPlayers = records[guildId].players.map(p => p.username).join(", ")
+      notiRecord = `Congrats, you've just surpassed ${oldPlayers} and set a new record!\n`
+        + `🥇 **${info.player.username}**: ${info.point} pts`
+    }
+    records[guildId] = {
+      point: info.point,
+      players: [info.player]
+    }
+
+  } else {
+    notiRecord = ""
+    return
+  }
+  if (notiRecord) {
+    fs.writeFileSync(dbLink, JSON.stringify(records), 'utf-8');
+    ch.send({ embeds: [gameNoti(notiRecord, "New record 🏆")] })
+  }
+}
+
 function handleGame(message, ch, author, command, content) {
   // 3.1 - Command for people not in the game -------------------------------------------
   switch (command) {
@@ -312,9 +374,14 @@ function handleGame(message, ch, author, command, content) {
       showRanking(ch)
       return
     case "quit":
-      if (Object.values(players).length) showRanking(ch) // show ranking
-      endGame() // end game, reset values
-      ch.send({ embeds: [gameNoti("❌ Game over! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
+      if (gameState == GAME_STATE.READY) {
+        endGame() // end game, reset values
+        ch.send({ embeds: [botMess("🕴🏻 See you next time, bye bye!")] })
+      } else {
+        if (Object.values(players).length) showRanking(ch) // show ranking
+        endGame() // end game, reset values
+        ch.send({ embeds: [gameNoti("❌ Game over! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
+      }
       return
     default:
       break
@@ -327,14 +394,14 @@ function handleGame(message, ch, author, command, content) {
   if (gameState == GAME_STATE.PAUSED) {
     if (!command) return
 
-    if (command == "cont") {
+    if (command == "resume") {
       gameState = GAME_STATE.STARTED
-      sendGameState(ch, [gameNoti("🕴🏻▶️ Back to game.")])
+      sendGameState(ch, [gameNoti("▶️ Back to da game.")])
     }
     return
   }
 
-  // !TODO: Set timer, automatically out after 5 minutes inactive
+  // !TODO: Set timer, automatically out after 5 minutes no interaction
   // 3.4 - command when game is ready --------------------------------------------------------
   if (gameState == GAME_STATE.READY) {
     if (!command) return
@@ -343,27 +410,21 @@ function handleGame(message, ch, author, command, content) {
       case "start":
         gameState = GAME_STATE.STARTED
         initGame(ch)
-        break
-      case "cancel":
-        endGame()
-        ch.send({ embeds: [botMess("🕴🏻 See you next time, bye bye!")] })
-        break
+        return
       case "hint":
-      case "quit":
       case "state":
       case "skip":
       case "pause":
         ch.send({ embeds: [botMess(`🕴🏻 This command is only available during gameplay. \`${PREFIX} start\` to start game.`)] })
-        break
+        return
       default:
         ch.send({
           embeds: [botMess(
             `🕴🏻 Mr.Hangman is already using this channel.
-            \n Use this command in another channel or \`${PREFIX} start/cancel\` to start/cancel game.`)]
+            \n Use this command in another channel or \`${PREFIX} start/quit\` to start/quit game.`)]
         })
-        break
+        return
     }
-    return
   }
   // TODO: "State" message, show the current state (time, letter guessed)
 
@@ -382,7 +443,7 @@ function handleGame(message, ch, author, command, content) {
         return
       case "pause":
         gameState = GAME_STATE.PAUSED
-        ch.send({ embeds: [gameNoti("🕴🏻⏸ Game paused.")] })
+        ch.send({ embeds: [gameNoti("⏸ Game paused.")] })
         return
       default:
         if (command) {
@@ -413,6 +474,7 @@ function handleGame(message, ch, author, command, content) {
               }
             }
             players[author.id].point += POINT_LETTER
+            handleRecord(ch, message.guild.id, players[author.id], POINT_LETTER)
             message.react("🤘")
 
             if (!riddleArr.includes("-")) {
@@ -429,6 +491,7 @@ function handleGame(message, ch, author, command, content) {
         } else { // answer has multiple letters -> word-guess
           if (ans == lcWordArr.join('')) {
             players[author.id].point += POINT_WORD
+            handleRecord(ch, message.guild.id, players[author.id], POINT_WORD)
             message.react("👏")
 
             restartGame(

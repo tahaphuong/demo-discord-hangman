@@ -25,7 +25,7 @@ const GAME_CMDS = {
   out: { name: "⚪️ Out game", value: "`out`", inline: true },
   rank: { name: "🏆 Show players/ranking", value: "`rank`", inline: true },
 
-  pause: { name: "⏸▶️ pause/continue", value: "`pause`/`cont`", inline: true },
+  pause: { name: "⏸▶️ pause/resume", value: "`pause`/`resume`", inline: true },
   skip: { name: "⏭ Skip word", value: "`skip`", inline: true },
   quit: { name: "❌Quit game", value: "`quit`", inline: true },
 }

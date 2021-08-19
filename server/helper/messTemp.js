@@ -32,7 +32,7 @@ const quoteEmbed = data => {
     .setFooter("Credit: rapidapi/martin.svoboda")
 }
 
-const gameWelcomeEmbed = channelName => {
+const gameWelcomeEmbed = (channelName, username, highest, serverName) => {
   return new MessageEmbed()
     .setColor(MAIN_COLOR)
     .setTitle("Play game: 🕴🏻 Mr.Hangman")
@@ -44,10 +44,15 @@ const gameWelcomeEmbed = channelName => {
         5️⃣ points if you guess the word right.\n
       `
     )
+    .addField(
+      `Highest score of **${serverName}**`, 
+      highest ? `🥇 **${username}**: ${highest} pts` : "Not recorded", 
+      true
+    )
+    .addField('Language', 'German/Deutsch', true)
     .addField('\u200B', '\u200B', false)
-    .addField('Language', 'German/Deutsch', false)
-    .addField("🎲 Start/cancel", "`start`/`cancel`", false)
-    .addFields({ name: '\u200B', value: '\u200B' }, ...Object.values(GAME_CMDS))
+    .addField("🎲 Start/quit", "`start`/`quit`", false)
+    .addFields(Object.values(GAME_CMDS))
 }
 
 const gameHelpEmbed = () => {
