@@ -247,9 +247,7 @@ function sendGameState(ch, otherMess) {
   ch.send({
     embeds: [
       ...otherMess,
-      gameMess(`
-        \`${HANG_STATE[lives]}\`\n\n\n
-        \`${riddleArr.join('')}\` (${word.length} letters)`,
+      gameMess(`\`${HANG_STATE[lives]}\`\n\n\`${riddleArr.join('')}\` (${word.length} letters)`,
         lives, guessedLetters)]
   })
 }
@@ -264,7 +262,7 @@ function initGame(ch) {
   let rd = Math.floor(Math.random() * LIST_WORDS.length)
   word = LIST_WORDS[rd]
 
-  console.log("hehe:", word, rd)
+  console.log("boom:", word, rd)
 
   lcWordArr = word.toLocaleLowerCase().split('')
   riddleArr = []
@@ -280,7 +278,9 @@ function handleWrongAnswer(ch, content) {
   sendGameState(ch, [gameNoti(notiText)])
   if (lives <= 0) {
     notiText = `Out of lives, game over! \n The word is **${word}**`
-    restartGame(ch, notiText)
+    ch.send({ embeds: [gameNoti(notiText)] })
+    showRanking(ch)
+    endGame()
   }
 }
 
@@ -308,7 +308,7 @@ async function handleRecord(ch, guildId, info, addedPoints) {
   if (!records) records = await getServerRecords()
 
   let notiRecord = "Congrats, you've just set a new record!\n"
-  + `🥇 **${info.player.username}**: ${info.point} pts`
+    + `🥇 **${info.player.username}**: ${info.point} pts`
 
   if (!records[guildId]) {
     records[guildId] = {
@@ -321,7 +321,7 @@ async function handleRecord(ch, guildId, info, addedPoints) {
     return
 
   } else if (records[guildId].point == info.point) {
-    if (!records[guildId].players.map(p=>p.id).includes(info.player.id)) {
+    if (!records[guildId].players.map(p => p.id).includes(info.player.id)) {
       records[guildId].players.push(info.player)
     }
 
@@ -371,7 +371,18 @@ function handleGame(message, ch, author, command, content) {
       }
       return
     case "rank":
+    case "players":
       showRanking(ch)
+      return
+    case "record":
+      let highest = null
+      let username = null
+      if (records[message.guild.id]) {
+        highest = records[message.guild.id].point
+        username = records[message.guild.id].players.map(p => p.username).join(", ")
+      }
+      let noti = highest ? `🥇 **${username}**: ${highest} pts` : "Not recorded"
+      ch.send({ embeds: [gameNoti(noti,`Highest score recorded in **${message.guild.name}**`)] })
       return
     case "quit":
       if (gameState == GAME_STATE.READY) {

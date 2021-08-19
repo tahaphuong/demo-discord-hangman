@@ -21,9 +21,9 @@ const GAME_CMDS = {
   hint: { name: "💡 Show hint", value: "`hint`", inline: true },
   state: { name: "🕹 Game state", value: "`state`", inline: true },
 
-  join: { name: "🔵 Join game", value: "`join`", inline: true },
-  out: { name: "⚪️ Out game", value: "`out`", inline: true },
-  rank: { name: "🏆 Show players/ranking", value: "`rank`", inline: true },
+  join: { name: "🔵join/⚪️out game", value: "`join`/`out`", inline: true },
+  record: { name: "🥇 Record", value: "`record`", inline: true },
+  rank: { name: "🏆 Show players/ranking", value: "`players`/`rank`", inline: true },
 
   pause: { name: "⏸▶️ pause/resume", value: "`pause`/`resume`", inline: true },
   skip: { name: "⏭ Skip word", value: "`skip`", inline: true },

@@ -45,7 +45,7 @@ const gameWelcomeEmbed = (channelName, username, highest, serverName) => {
       `
     )
     .addField(
-      `Highest score of **${serverName}**`, 
+      `Highest score recorded **${serverName}**`, 
       highest ? `🥇 **${username}**: ${highest} pts` : "Not recorded", 
       true
     )
