@@ -14,7 +14,9 @@ const {
   NUM_LIVES,
   POINT_LETTER,
   POINT_WORD,
-  HELLO_DM
+  SKIPS,
+  HIDDEN_LETTER,
+  HELLO_DM,
 } = require('./data/constants')
 
 const { MAIN_CMDS } = require('./data/commands')
@@ -40,9 +42,11 @@ async function getServerRecords() {
 /*{[serverId]: {point: xx, playesr: [Author]}}*/
 let textChannels = []
 let gameChannel = null
+
+let players = {} // point & player
 let gameState = GAME_STATE.INACTIVE
 let lives = NUM_LIVES
-let players = {} // point & player
+let skipTurns = SKIPS
 
 let word = ""
 let lcWordArr = []
@@ -193,9 +197,6 @@ client.on('messageCreate', async message => {
 
 
 
-
-
-
 // ---------------- game mode -------------------------------------------
 
 
@@ -230,6 +231,7 @@ function endGame() {
   players = {}
   gameChannel = null
   gameState = GAME_STATE.INACTIVE
+  skipTurns = SKIPS
   resetGame()
 }
 
@@ -248,7 +250,7 @@ function sendGameState(ch, otherMess) {
     embeds: [
       ...otherMess,
       gameMess(`\`${HANG_STATE[lives]}\`\n\n\`${riddleArr.join('')}\` (${word.length} letters)`,
-        lives, guessedLetters)]
+          lives, guessedLetters, skipTurns)]
   })
 }
 
@@ -267,7 +269,7 @@ function initGame(ch) {
   lcWordArr = word.toLocaleLowerCase().split('')
   riddleArr = []
   for (let i = 0; i < word.length; i++) {
-    riddleArr.push("-")
+    riddleArr.push(HIDDEN_LETTER)
   }
   sendGameState(ch, [])
 }
@@ -297,7 +299,7 @@ function showRanking(ch) {
     } else if (i == 2) {
       rankingBoard += "🥉 " + t
     } else {
-      rankingBoard += `${i + 1} + ${t}`
+      rankingBoard += `${i + 1}. ${t}`
     }
   }
 
@@ -450,7 +452,13 @@ function handleGame(message, ch, author, command, content) {
         // TODO: show the hint here
         return
       case "skip":
-        initGame(ch)
+        if (skipTurns > 0) {
+          skipTurns -= 1
+          ch.send({ embeds: [botMess(`🕴🏻⏭ Skipped to new word`)] })
+          initGame(ch)
+        } else {
+          ch.send({ embeds: [botMess(`🕴🏻 You have no skip turns left :(`)] })
+        }
         return
       case "pause":
         gameState = GAME_STATE.PAUSED
@@ -474,40 +482,46 @@ function handleGame(message, ch, author, command, content) {
             ch.send({ embeds: [gameNoti(`**\`${ans.toLocaleUpperCase()}\`** is already guessed`)] })
             return
           }
-
           if (!guessedLetters.includes(ans)) {
             guessedLetters.push(ans)
           }
+          let added = 0
           if (lcWordArr.includes(ans)) {
             for (let i = 0; i < lcWordArr.length; i++) {
               if (lcWordArr[i] == ans) {
+                added += POINT_LETTER
                 riddleArr[i] = word[i]
               }
             }
-            players[author.id].point += POINT_LETTER
-            handleRecord(ch, message.guild.id, players[author.id], POINT_LETTER)
+            players[author.id].point += added
+            handleRecord(ch, message.guild.id, players[author.id], added)
             message.react("🤘")
 
-            if (!riddleArr.includes("-")) {
+            if (!riddleArr.includes(HIDDEN_LETTER)) {
               restartGame(
                 ch,
                 `Yay **${author.username}** got letter **\`${ans.toLocaleUpperCase()}\`** right => +${POINT_LETTER} pt(s)! \n 
                 It was also the last letter, the word is \`${word}\``)
             } else {
-              sendGameState(ch, [gameNoti(`${author.username} got letter **\`${ans.toLocaleUpperCase()}\`** right => +${POINT_LETTER} pt(s)! `)])
+              sendGameState(ch, [gameNoti(`${author.username} got letter **\`${ans.toLocaleUpperCase()}\`** right => \`+${added}\` pt(s)! `)])
             }
           } else {
             handleWrongAnswer(ch, content)
           }
         } else { // answer has multiple letters -> word-guess
           if (ans == lcWordArr.join('')) {
-            players[author.id].point += POINT_WORD
-            handleRecord(ch, message.guild.id, players[author.id], POINT_WORD)
+            let added = POINT_WORD
+            for (let c of riddleArr) {
+              if (c == HIDDEN_LETTER) added += POINT_LETTER
+            }
+
+            players[author.id].point += added
+            handleRecord(ch, message.guild.id, players[author.id], added)
             message.react("👏")
 
             restartGame(
               ch,
-              `Yay **${author.username}** guessed it right! \n The word is **\`${word}\`** => +${POINT_WORD} pt(s)!`)
+              `Yay **${author.username}** guessed it right! \n The word is **\`${word}\`** => \`+${added}\` pt(s)!`)
           } else {
             handleWrongAnswer(ch, content)
           }

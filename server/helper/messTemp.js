@@ -38,11 +38,7 @@ const gameWelcomeEmbed = (channelName, username, highest, serverName) => {
     .setTitle("Play game: 🕴🏻 Mr.Hangman")
     .setAuthor("🕴🏻 is now in channel: " + channelName)
     .setDescription(
-      `🪑 The classical hangman game.\nYou can use following commands with syntax \`${PREFIX} <command>\`\n
-        You get\n
-        1️⃣ point if you guess the letter right.\n
-        5️⃣ points if you guess the word right.\n
-      `
+      `🪑 The classical hangman game.\nYou can use following commands with syntax \`${PREFIX} <command>\`\n`
     )
     .addField(
       `Highest score recorded **${serverName}**`, 
@@ -63,12 +59,13 @@ const gameHelpEmbed = () => {
     .addFields({ name: '\u200B', value: '\u200B' }, ...Object.values(GAME_CMDS))
 }
 
-const gameMess = (text, lives, guessedLetters) => {
+const gameMess = (text, lives, guessedLetters, skipTurns) => {
   return new MessageEmbed()
     .setColor(MAIN_COLOR)
     .setTitle("🕴🏻 Guess the word/a possible letter!")
     .setDescription(text)
-    .addField("Lives", lives + "❤️", false)
+    .addField("Lives", lives + " ❤️", true)
+    .addField("Skip turns", skipTurns + " ⏭", true)
     .addField("Guessed letters", `\`${guessedLetters.map(l => l.toLocaleUpperCase()).join(" ") || "(No letters)"}\``, false)
 }
 

@@ -10,9 +10,11 @@ const GAME_STATE = {
 
 const NUM_LIVES = 12
 const POINT_LETTER = 1
-const POINT_WORD = 5
+const POINT_WORD = 2
+const SKIPS = 3
 
 const MAIN_COLOR = "#f7daf0"
+const HIDDEN_LETTER = "-"
 
 const HELLO_DM = `
 I am a (demo hangman) bot 🤖\n
@@ -31,5 +33,7 @@ module.exports = {
   POINT_LETTER,
   POINT_WORD,
   MAIN_COLOR,
-  HELLO_DM
+  SKIPS,
+  HIDDEN_LETTER,
+  HELLO_DM,
 }
