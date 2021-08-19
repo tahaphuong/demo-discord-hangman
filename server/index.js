@@ -12,19 +12,26 @@ const typeTextChannel = "GUILD_TEXT"
 const GAME_STATE = {
   INACTIVE: 0,
   READY: 1,
-  STARTED: 2 
+  STARTED: 2,
+  PAUSED: 3
 }
+
+const POINT_LETTER = 1
+const POINT_WORD = 5
 
 let textChannels = []
 let gameChannel = null
 let gameState = GAME_STATE.INACTIVE
+let players = {}
+
 let lives = NUM_LIVES
 
 let word = ""
 let lcWordArr = []
 let riddleArr = []
+let guessedLetters = []
 
-// TODO: gameChannels -> game can be played in muzltiple channels
+// TODO: gameChannels -> game can be played in multiple channels and servers
 
 client.on('ready', () => {
   console.log('ready on set')
@@ -42,110 +49,176 @@ valid command: PREFIX <command>
 
 client.on('messageCreate', async message => {
 
+  // author - player
+  let author = message.author
+
   // return if author is a bot
-  if(message.author.bot) return;
+  if (author.bot) return;
 
   // return if author is the logged in bot
-  // if (message.author.id === client.user.id) return
+  if (author.id === client.user.id) return
 
   let ch = message.channel
   let messInTextChannel = textChannels.map(item => item.id).includes(ch.id)
 
   // return if user's mess not in text channel
   if (!messInTextChannel) return
-  
 
   // filter content and command
   let content = message.content.trim()
   let command = content == PREFIX ?
     PREFIX
     : content.startsWith(PREFIX + " ")
-      ? content.split(" ")[1].trim()
+      ? content.split(PREFIX)[1].trim()
       : ""
 
-  // TODO: Set timer, automatically out after 5 minutes inactive
-  if (gameState == GAME_STATE.READY && gameChannel && ch.id == gameChannel.id) {
+  if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {
+
     switch (command) {
       case "help":
         ch.send({ embeds: [gameHelpEmbed()] })
-        break
-      case "start":
-        gameState = GAME_STATE.STARTED
-        lives = NUM_LIVES
-      	initGame(ch)
-        break
-      case "cancel": 
-        gameState = GAME_STATE.INACTIVE
-        gameChannel = null
-        ch.send({ embeds: [botMess("🕴🏻 See you next time, bye bye!")] })
-        break
-      case "hint":
-      case "quit":
-      case "state":
-      case "skip":
-        ch.send({ embeds: [botMess("🕴🏻 `This command is only available during gameplay.")] })
-        break
-      default:
-        break
-    } 
-    return
-  } 
-  
-  // TODO: Set timer, automatically out after 5 minutes inactive
-  // TODO: "State" message, show the current state (time, letter guessed)
-  if (gameState == GAME_STATE.STARTED && gameChannel && ch.id == gameChannel.id) {
-    switch (command) {
-      case "help":
-        ch.send({ embeds: [gameHelpEmbed()] })
-        break
-      case "state":
-        sendGameState(ch, [])
-        break
-      case "hint": 
-        ch.send({ embeds: [botMess("🕴🏻 Hints are currently not available. But soon, maybe in the next game (?)")] })
-        // TODO: show the hint here
-        break
-      case "quit":
-        gameState = GAME_STATE.INACTIVE
-        gameChannel = null
-        ch.send({ embeds: [botMess("🕴🏻 Thank you for playing with Mr.Hangman!")] })
-        // TODO: print the dashboard here
-        break
-      case "skip":
-      	initGame(ch)
-        break
-      default: 
-        // TODO: handle answer from players
-        let ans = content.toLocaleLowerCase()
-        if (ans.length == 1) {
-          if (lcWordArr.includes(ans)) {
-            for (let i=0; i<lcWordArr.length; i++) {
-              if (lcWordArr[i] == ans) {
-                riddleArr[i] = word[i]
-              }
-            }
-            sendGameState(ch, [gameNoti(`You got \`${ans}\` right!`)])
-          } else {
-            lives -= 1
-            sendGameState(ch, [gameNoti(`You have ${lives}❤️ left.`)])
+        return
+      case "join":
+        if (players[author.id]) {
+          ch.send({ embeds: [gameNoti(`**${author.username}** is already in the list.`)] })
+        } else {
+          players[author.id] = { point: 0, author: author }
+          ch.send({ embeds: [gameNoti(`**${author.username}** is added to the list.`)] })
+        }
+        return
+      case "out":
+        if (players[author.id]) {
+          delete players[author.id]
+          ch.send({ embeds: [gameNoti(`**${author.username}** is deleted from the list.`)] })
+          if (!Object.values(players).length) {
+            endGame()
+            ch.send({ embeds: [botMess("Game is over because there's no one left in the game! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
           }
         } else {
-          if (ans == lcWordArr.join('')) {
-            // TODO: +1 point for user, documented in a dashboard (return dashboard when quit game)
-            let congrat = `Yay **${message.author.username}** has guessed it right! \n The word is \`${word}\` ` 
-            ch.send({ embeds: [gameNoti(congrat), gameNoti("...is coming back in 5 seconds with another word.")] })
-            // TODO: "state" message to update the time
-            setTimeout(() => initGame(ch), 5000)
-          } else {
-            lives -= 1
-            sendGameState(ch, [gameNoti(`You have ${lives}❤️ left.`)])
-          }
+          ch.send({ embeds: [gameNoti(`**${author.username}** is not yet in the list. \`join\` to join the game`)] })
         }
+        return
+      case "rank":
+        showRanking(ch)
+        return
+      case "quit":
+        if (Object.values(players).length) showRanking(ch)
+        endGame()
+        ch.send({ embeds: [botMess("Game over! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
+        return
+      default:
         break
-        
-    } 
+    }
+
+    if (!players[author.id]) return
+
+    if (gameState == GAME_STATE.PAUSED) {
+      if (!command) return
+
+      if (command == "pause") {
+        gameState = GAME_STATE.STARTED
+        sendGameState(ch, [gameNoti("🕴🏻 Back to game.")])
+      }
+      return
+    }
+
+    // !TODO: Set timer, automatically out after 5 minutes inactive
+    if (gameState == GAME_STATE.READY) {
+      if (!command) return
+
+      switch (command) {
+        case "start":
+          gameState = GAME_STATE.STARTED
+          initGame(ch)
+          break
+        case "cancel":
+          endGame()
+          ch.send({ embeds: [botMess("🕴🏻 See you next time, bye bye!")] })
+          break
+        case "hint":
+        case "quit":
+        case "state":
+        case "skip":
+        case "pause":
+          ch.send({ embeds: [botMess(`🕴🏻 This command is only available during gameplay. \`${PREFIX} start\` to start game.`)] })
+          break
+        default:
+          ch.send({ embeds: [botMess(`🕴🏻 Unavailabe command (in game channel). \`${PREFIX} start\` to start game.`)] })
+          break
+      }
+      return
+    }
+
+    // TODO: "State" message, show the current state (time, letter guessed)
+    if (gameState == GAME_STATE.STARTED) {
+      switch (command) {
+        case "state":
+          sendGameState(ch, [])
+          break
+        case "hint":
+          ch.send({ embeds: [botMess("🕴🏻 Hints are currently not available. But soon, maybe in the next game (?)")] })
+          // TODO: show the hint here
+          break
+        case "skip":
+          initGame(ch)
+          break
+        case "pause":
+          gameState = GAME_STATE.PAUSED
+          ch.send({ embeds: [gameNoti("Game paused.")] })
+          break
+        default:
+          if (command) {
+            ch.send({ embeds: [botMess("🕴🏻 This command is not available during gameplay.")] })
+            return
+          }
+
+          // handle answer
+          let ans = content.toLocaleLowerCase()
+          
+          // answer has 1 letter -> letter-guess
+          if (ans.length == 1) {
+
+            if (guessedLetters.includes(ans) && lcWordArr.includes(ans)) {
+              ch.send({ embeds: [gameNoti(`**${ans.toLocaleUpperCase()}** is already guessed`)] })
+              return
+            }
+
+            if (!guessedLetters.includes(ans)) {
+              guessedLetters.push(ans)
+            }
+            if (lcWordArr.includes(ans)) {
+              for (let i = 0; i < lcWordArr.length; i++) {
+                if (lcWordArr[i] == ans) {
+                  riddleArr[i] = word[i]
+                }
+              }
+              players[author.id].point += POINT_LETTER
+              sendGameState(ch, [gameNoti(`${author.username} got \`${ans}\` right and has 1 more point! `)])
+
+              if (!riddleArr.includes("-")) {
+                let notiText = `Yay **${author.username}** has guessed the last letter right and 1 more point! \n The word is \`${word}\``
+                restartGame(ch, notiText)
+              }
+            } else {
+              handleWrongAnswer(ch)
+            }
+          } else { // answer has multiple letters -> word-guess
+            if (ans == lcWordArr.join('')) {
+              players[author.id].point += POINT_WORD
+              let notiText = `Yay **${message.author.username}** has guessed it right! \n The word is \`${word}\``
+              restartGame(ch, notiText)
+            } else {
+              handleWrongAnswer(ch)
+            }
+          } 
+          break
+      }
+      return
+    }
+
     return
   }
+
 
   // return if user's mess is not a command
   if (!command) return
@@ -161,7 +234,7 @@ client.on('messageCreate', async message => {
       break
     case "help":
       mess = `
-        💫 use to call the bot: \n
+        💫 to call the bot: \n
         Syntax: ${PREFIX} <command> (space between ${PREFIX} and <command>) \n
         \n
         [only command] 👉🏼  about me. ✌🏼 \n
@@ -205,12 +278,12 @@ client.on('messageCreate', async message => {
         mess = "🔌 oh no an error occured. \n" + err.message
       }
       break
-    
-    // TODO: games can be played in multiple channels and servers
+
     case "play":
       if (gameState == GAME_STATE.INACTIVE) {
         gameState = GAME_STATE.READY
         gameChannel = ch
+        players[author.id] = { point: 0, author: author }
         ch.send({ embeds: [gameWelcomeEmbed(gameChannel.name)] })
       } else {
         let channelName = gameChannel ? `channel \`${gameChannel.name}\`` : "an other channel." // just to make sure no error's gonna occur lol
@@ -254,23 +327,38 @@ const quoteEmbed = data => {
     .setFooter("Credit: rapidapi/martin.svoboda")
 }
 
+const gameCommands = [
+  { name: '\u200B', value: '\u200B' },
+
+  { name: "Help", value: "`help`", inline: true },
+  { name: "Show hint", value: "`hint`", inline: true },
+  { name: "Game state", value: "`state`", inline: true },
+
+  { name: "Join game", value: "`join`", inline: true },
+  { name: "Out game", value: "`out`", inline: true },
+  { name: "Show players/ranking", value: "`rank`", inline: true },
+
+  { name: "Toggle pause", value: "`pause`", inline: true },
+  { name: "Skip word", value: "`skip`", inline: true },
+  { name: "Quit game", value: "`quit`", inline: true },
+]
+
 const gameWelcomeEmbed = channelName => {
   return new MessageEmbed()
     .setColor("#f7daf0")
     .setTitle("Play game: 🕴🏻 Mr.Hangman")
     .setAuthor("🕴🏻 is now in channel: " + channelName)
-    .setDescription("🪑 The classical hangman game. You can call the following commands with prefix " + PREFIX)
+    .setDescription(
+      `🪑 The classical hangman game. You can call the following commands with prefix ${PREFIX}.\n
+        You get\n
+        1️⃣ point if you guess the letter right.\n
+        5️⃣ points if you guess the word right.\n
+      `
+    )
     .addField('\u200B', '\u200B', false)
     .addField('Language', 'German/Deutsch', false)
     .addField("Start/cancel", "`start`/`cancel`", false)
-    .addFields(
-      { name: '\u200B', value: '\u200B' },
-      { name: "Help", value: "`help`", inline: true },
-      { name: "Show hint", value: "`hint`", inline: true },
-      { name: "Game state", value: "`state`", inline: true },
-      { name: "Skip word", value: "`skip`", inline: true },
-      { name: "Quit game", value: "`quit`", inline: true },
-    )
+    .addFields(gameCommands)
 }
 
 const gameHelpEmbed = () => {
@@ -278,13 +366,7 @@ const gameHelpEmbed = () => {
     .setColor("#f7daf0")
     .setTitle("🕴🏻 Mr.Hangman understands")
     .setDescription("...these commands, please include prefix " + PREFIX)
-    .addFields(
-      { name: "Help", value: "`help`", inline: true },
-      { name: "Show hint", value: "`hint`", inline: true },
-      { name: "Game state", value: "`state`", inline: true },
-      { name: "Skip word", value: "`skip`", inline: true },
-      { name: "Quit game", value: "`quit`", inline: true },
-    )
+    .addFields(gameCommands)
 }
 
 const gameMess = text => {
@@ -293,21 +375,56 @@ const gameMess = text => {
     .setTitle("🕴🏻 Guess the word/a possible letter!")
     .setDescription(text)
     .addField("Lives", lives + "❤️", false)
+    .addField("Guessed letters", guessedLetters.map(l => l.toLocaleUpperCase()).join(" ") || "(No letters)", false)
 }
 
-const gameNoti = text => {
+const gameNoti = (text, title = "🕴🏻 Mr.Hangman") => {
   return new MessageEmbed()
     .setColor("#f7daf0")
-    .setTitle("🕴🏻 Mr.Hangman")
+    .setTitle(title)
     .setDescription(text)
+}
+
+function resetGame() {
+  lives = NUM_LIVES
+  word = ""
+  lcWordArr = []
+  riddleArr = []
+  guessedLetters = []
+}
+
+function endGame() {
+  players = {}
+  gameChannel = null
+  gameState = GAME_STATE.INACTIVE
+
+  resetGame()
+}
+
+function restartGame(ch, notiText) {
+  gameState = GAME_STATE.PAUSED
+  resetGame()
+  ch.send({ embeds: [gameNoti(notiText), gameNoti("...is coming back in 10 seconds with another word.")] })
+  // TODO: "state" message to update the time
+  setTimeout(() => initGame(ch), 10000)
 }
 
 function sendGameState(ch, otherMess) {
   if (!Array.isArray(otherMess)) otherMess = []
-  ch.send({ embeds: [...otherMess, gameMess(`\`${riddleArr.join('')}\` (${word.length} letters)`)] })
+  let hangState = require('./hang')
+  ch.send({
+    embeds: [
+      ...otherMess,
+      gameMess(`
+      \`${hangState[lives]}\`\n
+      \`${riddleArr.join('')}\` (${word.length} letters)`)]
+  })
 }
 
 function initGame(ch) {
+  gameState = GAME_STATE.STARTED
+  resetGame()
+  lives = NUM_LIVES
   let list = require('./data') // list of our words
   let rd = Math.floor(Math.random() * list.length)
   word = list[rd]
@@ -315,13 +432,45 @@ function initGame(ch) {
 
   lcWordArr = word.toLocaleLowerCase().split('')
   riddleArr = []
-  for (let i=0; i<word.length; i++) {
+  for (let i = 0; i < word.length; i++) {
     riddleArr.push("-")
   }
   sendGameState(ch, [])
 }
 
+function handleWrongAnswer(ch) {
+  lives -= 1
+  let notiText = `You have ${lives}❤️ left.`
+  sendGameState(ch, [gameNoti(notiText)])
+  if (lives <= 0) {
+    notiText = `Out of lives, game over! \n The word is **${word}**`
+    restartGame(ch, notiText)
+  }
+}
+
+function showRanking(ch) {
+  let ranking = Object.values(players).sort((a, b) => b.point - a.point)
+  let rankingBoard = ranking.length ? "" : "😳 Hmmm it seems like no one is here."
+
+  for (let i = 0; i < ranking.length; i++) {
+    let t = `**${ranking[i].author.username}**: ${ranking[i].point} pt(s) \n`
+    if (i == 0) {
+      rankingBoard += "🥇 " + t
+    } else if (i == 1) {
+      rankingBoard += "🥈 " + t
+    } else if (i == 2) {
+      rankingBoard += "🥉 " + t
+    } else {
+      rankingBoard += `${i + 1} + ${t}`
+    }
+  }
+
+  ch.send({ embeds: [gameNoti(rankingBoard, "🕴🏻 Mr.Hangman Ranking")] })
+}
+
 // Code from https://stackoverflow.com/questions/48598773/shuffle-letters-in-word-javascript
+
+// TODO: make game word scramble
 function shuffelWord(word) {
   word = word.split('');
 
