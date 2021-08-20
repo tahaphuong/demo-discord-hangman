@@ -371,11 +371,13 @@ async function handleRecord(ch, guildId, info, addedPoints) {
 }
 
 function endReadyState(ch) {
+  let gameOverWords = ""
   if (gameState == GAME_STATE.STARTED) {
+    gameOverWords = "❌ Game over! "
     if (Object.values(players).length) showRanking(ch) // show ranking if game is already started
   }
   endGame() // end game, reset values
-  ch.send({ embeds: [botMess(`🕴🏻 Mr.Hangman's leaving now due to inactivity for too long. (${Math.round(INACTIVE_TIME/60000)} mins)`)] })
+  ch.send({ embeds: [botMess(`${gameOverWords} 🕴🏻 Mr.Hangman's leaving now due to ${Math.round(INACTIVE_TIME/60000)} minutes of inactivity.`)] })
 }
 
 function handleGame(message, ch, author, command, content) {
