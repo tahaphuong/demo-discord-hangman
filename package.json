@@ -14,10 +14,11 @@
   },
   "dependencies": {
     "discord.js": "^13.2.0-dev.1629288463.d6e6244",
-    "dotenv": "^10.0.0"
+    "dotenv": "^10.0.0",
+    "axios": "^0.21.1"
   },
   "engines": {
     "node": "16.x",
-    "npm": "6.x"
+    "npm": "6.x",
   }
 }
