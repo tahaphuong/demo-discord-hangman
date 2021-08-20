@@ -38,17 +38,18 @@ const gameWelcomeEmbed = (channelName, username, highest, serverName) => {
     .setTitle("Play game: 🕴🏻 Mr.Hangman")
     .setAuthor("🕴🏻 is now in channel: " + channelName)
     .setDescription(
-      `🪑 The classical hangman game.\nYou can use following commands with syntax \`${PREFIX} <command>\`\n`
+      `🪑 The classical hangman game. Now available in German/Deutsch. \n
+      Correct letter 👉 1 pt
+      Correct word 👉 1 pt for each hidden letters + 2 pts reward 🎈\n
+      You can use following commands with syntax \`${PREFIX} <command>\`\n\n`
     )
+    .addField("🎲 Start/quit", "`start`/`quit`", false)
+    .addFields(Object.values(GAME_CMDS))
     .addField(
       `Highest score recorded **${serverName}**`, 
       highest ? `🥇 **${username}**: ${highest} pts` : "Not recorded", 
       true
     )
-    .addField('Language', 'German/Deutsch', true)
-    .addField('\u200B', '\u200B', false)
-    .addField("🎲 Start/quit", "`start`/`quit`", false)
-    .addFields(Object.values(GAME_CMDS))
 }
 
 const gameHelpEmbed = () => {
@@ -59,13 +60,14 @@ const gameHelpEmbed = () => {
     .addFields({ name: '\u200B', value: '\u200B' }, ...Object.values(GAME_CMDS))
 }
 
-const gameMess = (text, lives, guessedLetters, skipTurns) => {
+const gameMess = (text, lives, guessedLetters, skipTurns, hintTurns) => {
   return new MessageEmbed()
     .setColor(MAIN_COLOR)
-    .setTitle("🕴🏻 Guess the word/a possible letter!")
+    .setTitle("🕴🏻 Guess the word/a letter!")
     .setDescription(text)
     .addField("Lives", lives + " ❤️", true)
-    .addField("Skip turns", skipTurns + " ⏭", true)
+    .addField("Skips", skipTurns + " ⏭", true)
+    .addField("Hints", hintTurns + " 💡", true)
     .addField("Guessed letters", `\`${guessedLetters.map(l => l.toLocaleUpperCase()).join(" ") || "(No letters)"}\``, false)
 }
 

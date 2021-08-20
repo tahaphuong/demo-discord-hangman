@@ -15,7 +15,11 @@ const {
   POINT_LETTER,
   POINT_WORD,
   SKIPS,
+  HINTS,
   HIDDEN_LETTER,
+  WAIT_TIME,
+  INACTIVE_TIME,
+  GUESS_TIME,
   HELLO_DM,
 } = require('./data/constants')
 
@@ -42,18 +46,22 @@ async function getServerRecords() {
 /*{[serverId]: {point: xx, playesr: [Author]}}*/
 let textChannels = []
 let gameChannel = null
+// TODO: gameChannels -> game can be played in multiple channels and servers (database)
 
 let players = {} // point & player
 let gameState = GAME_STATE.INACTIVE
 let lives = NUM_LIVES
 let skipTurns = SKIPS
+let hintTurns = HINTS
 
 let word = ""
 let lcWordArr = []
 let riddleArr = []
 let guessedLetters = []
+let lastStateMess = null
 
-// TODO: gameChannels -> game can be played in multiple channels and servers (database)
+let inactivityTimer = null
+let guessTimer = null
 
 client.on('ready', () => {
   console.log('ready on server')
@@ -93,11 +101,12 @@ client.on('messageCreate', async message => {
       : ""
 
   if (command.length >= 200) {
-    ch.send({ embeds: [botMess("😨 That's a long command... Sorry I can't process it")] })
+    ch.send({ embeds: [botMess("😨 This command is too long for me to understand.")] })
+    return
   }
 
   // 3 - If channel in game mode -----------------------------------------------------
-  if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {
+  if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {    
     handleGame(message, ch, author, command, content)
     return
   }
@@ -160,6 +169,10 @@ client.on('messageCreate', async message => {
 
     case "play":
       if (gameState == GAME_STATE.INACTIVE) {
+
+        // set active timeout
+        inactivityTimer = setTimeout(() => endReadyState(ch), INACTIVE_TIME)
+
         gameState = GAME_STATE.READY
         gameChannel = ch
         addNewPlayer(author)
@@ -196,7 +209,6 @@ client.on('messageCreate', async message => {
 });
 
 
-
 // ---------------- game mode -------------------------------------------
 
 
@@ -219,7 +231,8 @@ let deletePlayer = (author) => {
   return false
 }
 
-function resetGame() {
+function resetRound() {
+  lastStateMess = null
   lives = NUM_LIVES
   word = ""
   lcWordArr = []
@@ -228,30 +241,35 @@ function resetGame() {
 }
 
 function endGame() {
+  if (inactivityTimer) clearTimeout(inactivityTimer)
   players = {}
   gameChannel = null
   gameState = GAME_STATE.INACTIVE
   skipTurns = SKIPS
-  resetGame()
+  hintTurns = HINTS
+  resetRound()
 }
 
-function restartGame(ch, notiText) {
+function setNewRound(ch, notiText) {
   gameState = GAME_STATE.PAUSED
 
-  resetGame()
+  resetRound()
   ch.send({ embeds: [gameNoti(notiText), gameNoti("...is coming back in 10 seconds with another word.")] })
   // TODO: "state" message to update the time
-  setTimeout(() => initGame(ch), 10000)
+  setTimeout(() => initGame(ch), WAIT_TIME)
 }
 
-function sendGameState(ch, otherMess) {
+function sendGameState(ch, otherMess = []) {
+  if (lastStateMess) {lastStateMess.delete()}
   if (!Array.isArray(otherMess)) otherMess = []
   ch.send({
     embeds: [
       ...otherMess,
       gameMess(`\`${HANG_STATE[lives]}\`\n\n\`${riddleArr.join('')}\` (${word.length} letters)`,
-          lives, guessedLetters, skipTurns)]
+          lives, guessedLetters, skipTurns, hintTurns)]
   })
+  .then(m => {lastStateMess = m})
+  .catch(err => {console.log("send game state", err)})
 }
 
 function initGame(ch) {
@@ -259,8 +277,7 @@ function initGame(ch) {
 
   gameState = GAME_STATE.STARTED
 
-  resetGame()
-  lives = NUM_LIVES
+  resetRound()
   let rd = Math.floor(Math.random() * LIST_WORDS.length)
   word = LIST_WORDS[rd]
 
@@ -271,7 +288,7 @@ function initGame(ch) {
   for (let i = 0; i < word.length; i++) {
     riddleArr.push(HIDDEN_LETTER)
   }
-  sendGameState(ch, [])
+  sendGameState(ch)
 }
 
 function handleWrongAnswer(ch, content) {
@@ -279,8 +296,7 @@ function handleWrongAnswer(ch, content) {
   let notiText = `Oh no **\`${content.toLocaleUpperCase()}\`** is wrong. You have ${lives}❤️ left.`
   sendGameState(ch, [gameNoti(notiText)])
   if (lives <= 0) {
-    notiText = `Out of lives, game over! \n The word is **${word}**`
-    ch.send({ embeds: [gameNoti(notiText)] })
+    ch.send({ embeds: [gameNoti(`Out of lives, game over! ❌\n The word is **${word}**`)] })
     showRanking(ch)
     endGame()
   }
@@ -303,7 +319,7 @@ function showRanking(ch) {
     }
   }
 
-  ch.send({ embeds: [gameNoti(rankingBoard, "🕴🏻 Mr.Hangman Ranking 🏆")] })
+  ch.send({ embeds: [gameNoti(rankingBoard, "🕴🏻 Mr.Hangman: Players 🏆")] })
 }
 
 async function handleRecord(ch, guildId, info, addedPoints) {
@@ -311,11 +327,17 @@ async function handleRecord(ch, guildId, info, addedPoints) {
 
   let notiRecord = "Congrats, you've just set a new record!\n"
     + `🥇 **${info.player.username}**: ${info.point} pts`
+  
+  let playerSchema = {
+    id: info.player.id,
+    username: info.player.username,
+    discriminator: info.player.discriminator
+  }
 
   if (!records[guildId]) {
     records[guildId] = {
       point: info.point,
-      players: [info.player]
+      players: [playerSchema]
     }
 
   } else if (records[guildId].point > info.point) {
@@ -324,7 +346,7 @@ async function handleRecord(ch, guildId, info, addedPoints) {
 
   } else if (records[guildId].point == info.point) {
     if (!records[guildId].players.map(p => p.id).includes(info.player.id)) {
-      records[guildId].players.push(info.player)
+      records[guildId].players.push(playerSchema)
     }
 
   } else if (records[guildId].point < info.point) {
@@ -335,7 +357,7 @@ async function handleRecord(ch, guildId, info, addedPoints) {
     }
     records[guildId] = {
       point: info.point,
-      players: [info.player]
+      players: [playerSchema]
     }
 
   } else {
@@ -348,7 +370,19 @@ async function handleRecord(ch, guildId, info, addedPoints) {
   }
 }
 
+function endReadyState(ch) {
+  if (gameState == GAME_STATE.STARTED) {
+    if (Object.values(players).length) showRanking(ch) // show ranking if game is already started
+  }
+  endGame() // end game, reset values
+  ch.send({ embeds: [botMess(`🕴🏻 Mr.Hangman's leaving now due to inactivity for too long. (${Math.round(INACTIVE_TIME/60000)} mins)`)] })
+}
+
 function handleGame(message, ch, author, command, content) {
+  // !TODO: Set timer, automatically out after 2 mins no interaction
+  if (inactivityTimer) clearTimeout(inactivityTimer)
+  inactivityTimer = setTimeout(() => endReadyState(ch), INACTIVE_TIME)
+
   // 3.1 - Command for people not in the game -------------------------------------------
   switch (command) {
     case "ghelp":
@@ -381,9 +415,9 @@ function handleGame(message, ch, author, command, content) {
       let username = null
       if (records[message.guild.id]) {
         highest = records[message.guild.id].point
-        username = records[message.guild.id].players.map(p => p.username).join(", ")
+        username = records[message.guild.id].players.map(p => `${p.username}#${p.discriminator}`).join("\n")
       }
-      let noti = highest ? `🥇 **${username}**: ${highest} pts` : "Not recorded"
+      let noti = highest ? `🥇 ${highest} pts \n **${username}**` : "Not recorded"
       ch.send({ embeds: [gameNoti(noti,`Highest score recorded in **${message.guild.name}**`)] })
       return
     case "quit":
@@ -393,7 +427,7 @@ function handleGame(message, ch, author, command, content) {
       } else {
         if (Object.values(players).length) showRanking(ch) // show ranking
         endGame() // end game, reset values
-        ch.send({ embeds: [gameNoti("❌ Game over! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
+        ch.send({ embeds: [botMess("❌ Game over! 🕴🏻 Thank you for playing with Mr.Hangman!")] })
       }
       return
     default:
@@ -404,52 +438,78 @@ function handleGame(message, ch, author, command, content) {
   if (!players[author.id]) return
 
   // 3.3 - command when game is paused --------------------------------------------------------
-  if (gameState == GAME_STATE.PAUSED) {
+  // 3.4 - command when game is ready --------------------------------------------------------
+  if (gameState == GAME_STATE.PAUSED || gameState == GAME_STATE.READY) {
     if (!command) return
 
-    if (command == "resume") {
+    if (gameState == GAME_STATE.PAUSED && command == "resume") {
       gameState = GAME_STATE.STARTED
       sendGameState(ch, [gameNoti("▶️ Back to da game.")])
+      return
     }
-    return
-  }
-
-  // !TODO: Set timer, automatically out after 5 minutes no interaction
-  // 3.4 - command when game is ready --------------------------------------------------------
-  if (gameState == GAME_STATE.READY) {
-    if (!command) return
+    
+    if (gameState == GAME_STATE.READY && command == "start") {
+      gameState = GAME_STATE.STARTED
+      initGame(ch)
+      return
+    }
 
     switch (command) {
-      case "start":
-        gameState = GAME_STATE.STARTED
-        initGame(ch)
-        return
+      case "play":
       case "hint":
       case "state":
       case "skip":
       case "pause":
-        ch.send({ embeds: [botMess(`🕴🏻 This command is only available during gameplay. \`${PREFIX} start\` to start game.`)] })
+      case "resume":
+        let keyWord = "start"
+        if (gameState == GAME_STATE.PAUSED) {
+          keyWord = "resume"
+        } 
+        ch.send({ embeds: [botMess(`🕴🏻 \`${PREFIX} ${keyWord}\` to ${keyWord} game.`)] })
         return
       default:
-        ch.send({
-          embeds: [botMess(
-            `🕴🏻 Mr.Hangman is already using this channel.
-            \n Use this command in another channel or \`${PREFIX} start/quit\` to start/quit game.`)]
-        })
+        let mess = `🕴🏻 Mr.Hangman is already using this room, see list commands: \`${PREFIX} ghelp\`.
+        Your command may work in other channels.`
+        if (gameState == GAME_STATE.PAUSED) {
+          mess = `🕴🏻 Mr.Hangman is pausing the game.\`${PREFIX} resume\` to resume game.`
+        }
+        ch.send({embeds: [botMess(mess)]})
         return
     }
   }
   // TODO: "State" message, show the current state (time, letter guessed)
 
   // 3.5 - command during gameplay ------------------------------------------------------------
+  // !TODO: Set timer, guess in 1 minute ?
   if (gameState == GAME_STATE.STARTED) {
     switch (command) {
       case "state":
-        sendGameState(ch, [])
+        sendGameState(ch)
         return
       case "hint":
-        ch.send({ embeds: [botMess("🕴🏻 Hints are currently not available. But soon, maybe in the next game (?)")] })
-        // TODO: show the hint here
+        if (hintTurns <= 0) {
+          ch.send({ embeds: [botMess(`🕴🏻 You have no hint left :(`)] })
+          return
+        }
+        hintTurns -= 1        
+        let hiddenIndices = []
+        for (let i=0; i<riddleArr.length; i++) {
+          if (riddleArr[i] == HIDDEN_LETTER) {
+            hiddenIndices.push(i)
+          }
+        }
+        if (hiddenIndices.length == 0) return
+        let rd = Math.floor(Math.random() * hiddenIndices.length)
+        let letter = lcWordArr[hiddenIndices[rd]]
+        guessedLetters.push(letter)
+
+        for (let i = 0; i < lcWordArr.length; i++) {
+          if (lcWordArr[i] == letter) {
+            riddleArr[i] = word[i]
+          }
+        }
+        ch.send({ embeds: [botMess(`🕴🏻 I'll give you this hint: **${letter.toLocaleUpperCase()}**`)] })
+        sendGameState(ch)
         return
       case "skip":
         if (skipTurns > 0) {
@@ -468,8 +528,8 @@ function handleGame(message, ch, author, command, content) {
         if (command) {
           ch.send({
             embeds: [botMess(
-              `🕴🏻 Mr.Hangman is already using this channel.
-              \n Use this command in another channel or \`${PREFIX} ghelp\` to see help.`)]
+              `🕴🏻 Mr.Hangman is already using this room, see list commands: \`${PREFIX} ghelp\`.
+              Your command may work in other channels.`)]
           })
           return
         }
@@ -498,7 +558,7 @@ function handleGame(message, ch, author, command, content) {
             message.react("🤘")
 
             if (!riddleArr.includes(HIDDEN_LETTER)) {
-              restartGame(
+              setNewRound(
                 ch,
                 `Yay **${author.username}** got letter **\`${ans.toLocaleUpperCase()}\`** right => +${POINT_LETTER} pt(s)! \n 
                 It was also the last letter, the word is \`${word}\``)
@@ -519,7 +579,7 @@ function handleGame(message, ch, author, command, content) {
             handleRecord(ch, message.guild.id, players[author.id], added)
             message.react("👏")
 
-            restartGame(
+            setNewRound(
               ch,
               `Yay **${author.username}** guessed it right! \n The word is **\`${word}\`** => \`+${added}\` pt(s)!`)
           } else {
