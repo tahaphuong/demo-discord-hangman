@@ -37,6 +37,7 @@ const {
 const LIST_WORDS = require('./data/words') // list of our words
 let HANG_STATE = require('./data/hang')
 
+// !TODO: Heroku Postgres (SQL/Redis database)
 const dbLink = path.join(__dirname, 'data/data.json')
 let records = null
 async function getServerRecords() {
@@ -61,7 +62,6 @@ let guessedLetters = []
 let lastStateMess = null
 
 let inactivityTimer = null
-let guessTimer = null
 
 client.on('ready', () => {
   console.log('ready on server')
@@ -106,7 +106,7 @@ client.on('messageCreate', async message => {
   }
 
   // 3 - If channel in game mode -----------------------------------------------------
-  if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {    
+  if (gameState != GAME_STATE.INACTIVE && gameChannel && ch.id == gameChannel.id) {
     handleGame(message, ch, author, command, content)
     return
   }
@@ -260,7 +260,9 @@ function setNewRound(ch, notiText) {
 }
 
 function sendGameState(ch, otherMess = []) {
-  if (lastStateMess) {lastStateMess.delete()}
+  if (lastStateMess && !lastStateMess.delete) {
+    lastStateMess.delete()
+  }
   if (!Array.isArray(otherMess)) otherMess = []
   ch.send({
     embeds: [

@@ -13,7 +13,13 @@
     "axios": "^0.21.1"
   },
   "dependencies": {
+    "axios": "^0.21.1",
     "discord.js": "^13.2.0-dev.1629288463.d6e6244",
-    "dotenv": "^10.0.0"
+    "dotenv": "^10.0.0",
+    "redis": "^3.1.2"
+  },
+  "engines": {
+    "node": "16.x",
+    "npm": "6.x"
   }
 }
